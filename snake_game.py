@@ -1,81 +1,92 @@
-import pygame as game
 import random
 
-window = 1000                                           # Set pop up window size
-screen = game.display.set_mode([window] * 2)            # Sets screen dimensions
-time, snake_can_move = 0, 75                            # Time will measure time elapsed since last snake movement
-                                                        # snake_can_move checks if enough time has elapsed to move again
-tile_size = 50                                          # Deciding 1 unit of movement and how large the snake/food is
+import pygame
 
-# Creating snake, giving it a random starting position, and keeping it stationary
-snake = game.rect.Rect([0, 0, tile_size, tile_size])
-snake_pos_x = random.randrange(1, (window // tile_size)) * tile_size
-snake_pos_y = random.randrange(1, (window // tile_size)) * tile_size
-snake.center = (snake_pos_x, snake_pos_y)
-snake_direction = (0, 0)
+WINDOW_SIZE = 1000
+TILE_SIZE = 50
+MOVE_INTERVAL_MS = 75
+MAX_FPS = 120
 
-# Creating food and giving it a random starting position
-food = game.rect.Rect([0, 0, tile_size, tile_size])
-food_pos_x = random.randrange(1, (window // tile_size)) * tile_size
-food_pos_y = random.randrange(1, (window // tile_size)) * tile_size
-food.center = (food_pos_x, food_pos_y)
+type Direction = tuple[int, int]
+
+STOPPED: Direction = (0, 0)
+KEY_DIRECTIONS: dict[int, Direction] = {
+    pygame.K_UP: (0, -TILE_SIZE),
+    pygame.K_DOWN: (0, TILE_SIZE),
+    pygame.K_LEFT: (-TILE_SIZE, 0),
+    pygame.K_RIGHT: (TILE_SIZE, 0),
+}
 
 
-length = 1                                              # Determines how many segments of the snake there are
-segments = [snake.copy()]                               # Holds each segment of the snake
-clock = game.time.Clock()                               # Will be used to set fps
+def random_tile() -> pygame.Rect:
+    """Return a tile-sized Rect centered on a random grid point inside the window."""
+    tile = pygame.Rect(0, 0, TILE_SIZE, TILE_SIZE)
+    tile.center = (
+        random.randrange(1, WINDOW_SIZE // TILE_SIZE) * TILE_SIZE,
+        random.randrange(1, WINDOW_SIZE // TILE_SIZE) * TILE_SIZE,
+    )
+    return tile
 
-# Main event loop
-while True:
-    for event in game.event.get():
-        # Decision tree for what program behavior based on user input
-        if event.type == game.QUIT:                     # If user wants to quit
-            exit()
-        if event.type == game.KEYDOWN:                  # If user presses another key
-            if event.key == game.K_UP and snake_direction != (0, tile_size):
-                snake_direction = (0, -tile_size)       # If user goes up and snake is not moving down
-            if event.key == game.K_DOWN and snake_direction != (0, -tile_size):
-                snake_direction = (0, tile_size)        # If user goes down and snake is not moving up
-            if event.key == game.K_LEFT and snake_direction != (tile_size, 0):
-                snake_direction = (-tile_size, 0)       # If user goes left and snake is not moving right
-            if event.key == game.K_RIGHT and snake_direction != (-tile_size, 0):
-                snake_direction = (tile_size, 0)        # If user goes right and snake is not moving left
 
-    screen.fill('black')                                # Setting black background for screen
+def next_direction(current: Direction, key: int) -> Direction:
+    """Return the direction for an arrow key, or `current` for any other key or a reversal."""
+    requested = KEY_DIRECTIONS.get(key)
+    if requested is None or requested == (-current[0], -current[1]):
+        return current
+    return requested
 
-    # If there is a collision between snake head and rest of it, self_colliding = False
-    self_colliding = game.Rect.collidelist(snake, segments[:-1]) != -1
 
-    # Bounds checking and checking if snake collides with itself
-    if self_colliding or snake.top < 0 or snake.left < 0 or snake.right > window or snake.bottom > window:
-        food_pos_x = random.randrange(1, (window // tile_size)) * tile_size
-        food_pos_y = random.randrange(1, (window // tile_size)) * tile_size
-        food.center = (food_pos_x, food_pos_y)          # Reset food
-        snake_pos_x = random.randrange(1, (window // tile_size)) * tile_size
-        snake_pos_y = random.randrange(1, (window // tile_size)) * tile_size
-        snake.center = (snake_pos_x, snake_pos_y)       # Reset snake
-        snake_direction = (0, 0)                        # Reset direction to none
-        length, segments = 1, [snake.copy()]            # Reset length of snake
+def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
+    """Play until the snake hits a wall or itself; return False if the window was closed instead."""
+    snake = random_tile()
+    food = random_tile()
+    direction = STOPPED
+    length = 1
+    segments = [snake.copy()]
+    last_move_ms = pygame.time.get_ticks()
 
-    # Handling snake eating food
-    if snake.center == food.center:
-        length += 1                                     # Increment length
-        food_pos_x = random.randrange(1, (window // tile_size)) * tile_size
-        food_pos_y = random.randrange(1, (window // tile_size)) * tile_size
-        food.center = (food_pos_x, food_pos_y)          # Reset food
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            if event.type == pygame.KEYDOWN:
+                direction = next_direction(direction, event.key)
 
-    # Draw snake
-    [game.draw.rect(screen, 'green', segment) for segment in segments]
+        # The last segment is the head itself.
+        hit_itself = snake.collidelist(segments[:-1]) != -1
+        if hit_itself or not screen.get_rect().contains(snake):
+            return True
 
-    # Draw food
-    game.draw.rect(screen, 'red', food)
+        if snake.center == food.center:
+            length += 1
+            food = random_tile()
 
-    # Move snake
-    curr_time = game.time.get_ticks()
-    if curr_time - time > snake_can_move:
-        time = curr_time
-        snake.move_ip(snake_direction)                  # move_ip() instead of move() to not compute new copy every time
-        segments.append(snake.copy())
-        segments = segments[-length:]                   # Draw segments based on length
-    game.display.flip()                                 # Update screen
-    clock.tick(120)                                     # Limit max FPS to 120
+        screen.fill("black")
+        for segment in segments:
+            pygame.draw.rect(screen, "green", segment)
+        pygame.draw.rect(screen, "red", food)
+        pygame.display.flip()
+
+        now_ms = pygame.time.get_ticks()
+        if now_ms - last_move_ms > MOVE_INTERVAL_MS:
+            last_move_ms = now_ms
+            snake.move_ip(direction)  # in place, so a move doesn't make a new Rect
+            segments.append(snake.copy())
+            segments = segments[-length:]
+
+        clock.tick(MAX_FPS)
+
+
+def main() -> None:
+    """Open the game window and start a new round after every crash, until the window is closed."""
+    pygame.init()
+    pygame.display.set_caption("Snake")
+    screen = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
+    clock = pygame.time.Clock()
+    while play_round(screen, clock):
+        pass
+    pygame.quit()
+
+
+if __name__ == "__main__":
+    main()
