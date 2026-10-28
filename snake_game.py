@@ -39,8 +39,16 @@ def next_direction(pending: Direction, moved: Direction, key: int) -> Direction:
     return requested
 
 
-def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
-    """Play until the snake crashes or fills the board; return False if the window was closed instead."""
+def show_score(score: int, best: int) -> None:
+    """Show `score` and the best score so far in the title bar; `best` is the best of earlier rounds."""
+    pygame.display.set_caption(f"Snake · Score {score} · Best {max(score, best)}")
+
+
+def play_round(
+    screen: pygame.Surface, clock: pygame.time.Clock, best: int
+) -> int | None:
+    """Play one round and return its score, or None if the window was closed."""
+    show_score(0, best)
     snake = random_free_tile([])
     food = random_free_tile([snake])
     direction = STOPPED
@@ -52,20 +60,21 @@ def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return False
+                return None
             if event.type == pygame.KEYDOWN:
                 direction = next_direction(direction, moved, event.key)
 
         # The last segment is the head itself.
         hit_itself = snake.collidelist(segments[:-1]) != -1
         if hit_itself or not screen.get_rect().contains(snake):
-            return True
+            return length - 1
 
         if snake.center == food.center:
+            length += 1
+            show_score(length - 1, best)
             # The snake fills the board, so there's no tile left for food.
             if len(segments) == GRID_SIZE**2:
-                return True
-            length += 1
+                return length - 1
             food = random_free_tile(segments)
 
         screen.fill("black")
@@ -86,13 +95,13 @@ def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
 
 
 def main() -> None:
-    """Open the game window and start a new round after every crash, until the window is closed."""
+    """Open the game window and play rounds, keeping the best score, until the window is closed."""
     pygame.init()
-    pygame.display.set_caption("Snake")
     screen = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
     clock = pygame.time.Clock()
-    while play_round(screen, clock):
-        pass
+    best = 0
+    while (score := play_round(screen, clock, best)) is not None:
+        best = max(best, score)
     pygame.quit()
 
 
