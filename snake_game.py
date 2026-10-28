@@ -4,6 +4,7 @@ import pygame
 
 WINDOW_SIZE = 1000
 TILE_SIZE = 50
+GRID_SIZE = WINDOW_SIZE // TILE_SIZE
 MOVE_INTERVAL_MS = 75
 MAX_FPS = 120
 
@@ -18,29 +19,32 @@ KEY_DIRECTIONS: dict[int, Direction] = {
 }
 
 
-def random_tile() -> pygame.Rect:
-    """Return a tile-sized Rect centered on a random grid point inside the window."""
-    tile = pygame.Rect(0, 0, TILE_SIZE, TILE_SIZE)
-    tile.center = (
-        random.randrange(1, WINDOW_SIZE // TILE_SIZE) * TILE_SIZE,
-        random.randrange(1, WINDOW_SIZE // TILE_SIZE) * TILE_SIZE,
+def random_free_tile(occupied: list[pygame.Rect]) -> pygame.Rect:
+    """Return a random grid tile that no Rect in `occupied` is on; at least one tile must be free."""
+    taken = {rect.topleft for rect in occupied}
+    every_tile = (
+        (col * TILE_SIZE, row * TILE_SIZE)
+        for col in range(GRID_SIZE)
+        for row in range(GRID_SIZE)
     )
-    return tile
+    free = [tile for tile in every_tile if tile not in taken]
+    return pygame.Rect(random.choice(free), (TILE_SIZE, TILE_SIZE))
 
 
-def next_direction(current: Direction, key: int) -> Direction:
-    """Return the direction for an arrow key, or `current` for any other key or a reversal."""
+def next_direction(pending: Direction, moved: Direction, key: int) -> Direction:
+    """Return the direction for an arrow key, or `pending` for any other key or a turn back along `moved`."""
     requested = KEY_DIRECTIONS.get(key)
-    if requested is None or requested == (-current[0], -current[1]):
-        return current
+    if requested is None or requested == (-moved[0], -moved[1]):
+        return pending
     return requested
 
 
 def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
-    """Play until the snake hits a wall or itself; return False if the window was closed instead."""
-    snake = random_tile()
-    food = random_tile()
+    """Play until the snake crashes or fills the board; return False if the window was closed instead."""
+    snake = random_free_tile([])
+    food = random_free_tile([snake])
     direction = STOPPED
+    moved = STOPPED
     length = 1
     segments = [snake.copy()]
     last_move_ms = pygame.time.get_ticks()
@@ -50,7 +54,7 @@ def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
             if event.type == pygame.QUIT:
                 return False
             if event.type == pygame.KEYDOWN:
-                direction = next_direction(direction, event.key)
+                direction = next_direction(direction, moved, event.key)
 
         # The last segment is the head itself.
         hit_itself = snake.collidelist(segments[:-1]) != -1
@@ -58,8 +62,11 @@ def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
             return True
 
         if snake.center == food.center:
+            # The snake fills the board, so there's no tile left for food.
+            if len(segments) == GRID_SIZE**2:
+                return True
             length += 1
-            food = random_tile()
+            food = random_free_tile(segments)
 
         screen.fill("black")
         for segment in segments:
@@ -71,6 +78,7 @@ def play_round(screen: pygame.Surface, clock: pygame.time.Clock) -> bool:
         if now_ms - last_move_ms > MOVE_INTERVAL_MS:
             last_move_ms = now_ms
             snake.move_ip(direction)  # in place, so a move doesn't make a new Rect
+            moved = direction
             segments.append(snake.copy())
             segments = segments[-length:]
 
